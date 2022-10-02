@@ -1,3 +1,7 @@
+#define V8_COMPRESS_POINTERS 1 
+#define V8_31BIT_SMIS_ON_64BIT_ARCH 1 
+
+#include <iostream>
 #include <unistd.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -12,22 +16,38 @@ using namespace v8;
 using namespace No::Util;
 
 int main(int argc, char* argv[]) {
+
+  std::cout<<V8_COMPRESS_POINTERS;
+  std::cout<<V8_31BIT_SMIS_ON_64BIT_ARCH;
+  
   setvbuf(stdout, nullptr, _IONBF, 0);
   setvbuf(stderr, nullptr, _IONBF, 0);
+
+
+  // v8 初始化
   v8::V8::InitializeICUDefaultLocation(argv[0]);
   v8::V8::InitializeExternalStartupData(argv[0]);
   std::unique_ptr<Platform> platform = platform::NewDefaultPlatform();
   v8::V8::InitializePlatform(platform.get());
   v8::V8::Initialize();
+
+  // 创建新的 Isolate 
   Isolate::CreateParams create_params;
   create_params.array_buffer_allocator = ArrayBuffer::Allocator::NewDefaultAllocator();
   Isolate* isolate = Isolate::New(create_params);
+  
   {
     Isolate::Scope isolate_scope(isolate);
+
+    // 创建 stack-allocated 的 handle scope
     HandleScope handle_scope(isolate);
     Local<ObjectTemplate> global = ObjectTemplate::New(isolate);
+
+    // 创建新的上下文 context
     Local<Context> context = Context::New(isolate, nullptr, global);
+    // 进入上下文
     Context::Scope context_scope(context);
+
     Local<Object> No = Object::New(isolate);
     No::Loader::Init(isolate, No);
     No::Console::Init(isolate, No);
@@ -54,7 +74,7 @@ int main(int argc, char* argv[]) {
                           NewStringType::kNormal,
                           info.st_size).ToLocalChecked();
 
-      // 编译
+      // 编译源码
       Local<Script> script = Script::Compile(context, source).ToLocalChecked();
       // 解析完应该没用了，释放内存
       free(ptr);
@@ -66,7 +86,8 @@ int main(int argc, char* argv[]) {
   // Dispose the isolate and tear down V8.
   isolate->Dispose();
   v8::V8::Dispose();
-  v8::V8::ShutdownPlatform();
+  v8::V8::DisposePlatform();
+  // v8::V8::ShutdownPlatform();
   delete create_params.array_buffer_allocator;
   return 0;
 }
