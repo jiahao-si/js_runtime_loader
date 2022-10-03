@@ -8,7 +8,7 @@
 
 # how to use
 
-- compile v8
+- compile v8(after successfully compiled, copy include/v8 directory from v8 source code)
 - replace v8 path in the makefile(-Llib => -L[your path]) or replace libv8_monolith.a
 - execute 'make' in the root dir (if success, you can see No executable file)
 - run 'No ./test/index.js'
