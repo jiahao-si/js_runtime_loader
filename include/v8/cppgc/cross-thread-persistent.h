@@ -37,10 +37,11 @@ class CrossThreadPersistentBase : public PersistentBase {
     SetNodeSafe(nullptr);
   }
 
-  // GetNodeSafe() can be used for a thread-safe IsValid() check.
+  // GetNodeSafe() can be used for a thread-safe IsValid() check in a
+  // double-checked locking pattern. See ~BasicCrossThreadPersistent.
   PersistentNode* GetNodeSafe() const {
     return reinterpret_cast<std::atomic<PersistentNode*>*>(&node_)->load(
-        std::memory_order_relaxed);
+        std::memory_order_acquire);
   }
 
   // The GC writes using SetNodeSafe() while holding the lock.
@@ -53,12 +54,12 @@ class CrossThreadPersistentBase : public PersistentBase {
 #endif
 
 #ifdef V8_IS_ASAN
-    __atomic_store(&node_, &value, __ATOMIC_RELAXED);
+    __atomic_store(&node_, &value, __ATOMIC_RELEASE);
 #else   // !V8_IS_ASAN
     // Non-ASAN builds can use atomics. This also covers MSVC which does not
     // have the __atomic_store intrinsic.
     reinterpret_cast<std::atomic<PersistentNode*>*>(&node_)->store(
-        value, std::memory_order_relaxed);
+        value, std::memory_order_release);
 #endif  // !V8_IS_ASAN
 
 #undef V8_IS_ASAN
@@ -76,10 +77,11 @@ class BasicCrossThreadPersistent final : public CrossThreadPersistentBase,
   using PointeeType = T;
 
   ~BasicCrossThreadPersistent() {
+    //  This implements fast path for destroying empty/sentinel.
+    //
     // Simplified version of `AssignUnsafe()` to allow calling without a
-    // complete type `T`. Also performs a thread-safe check for a handle that is
-    // not valid. This implements fast path for destroying empty/sentinel
-    // handles.
+    // complete type `T`. Uses double-checked locking with a simple thread-safe
+    // check for a valid handle based on a node.
     if (GetNodeSafe()) {
       PersistentRegionLock guard;
       const void* old_value = GetValue();
@@ -118,7 +120,7 @@ class BasicCrossThreadPersistent final : public CrossThreadPersistentBase,
     if (!IsValid(raw)) return;
     PersistentRegionLock guard;
     CrossThreadPersistentRegion& region = this->GetPersistentRegion(raw);
-    SetNode(region.AllocateNode(this, &Trace));
+    SetNode(region.AllocateNode(this, &TraceAsRoot));
     this->CheckPointer(raw);
   }
 
@@ -136,7 +138,7 @@ class BasicCrossThreadPersistent final : public CrossThreadPersistentBase,
       : CrossThreadPersistentBase(raw), LocationPolicy(loc) {
     if (!IsValid(raw)) return;
     CrossThreadPersistentRegion& region = this->GetPersistentRegion(raw);
-    SetNode(region.AllocateNode(this, &Trace));
+    SetNode(region.AllocateNode(this, &TraceAsRoot));
     this->CheckPointer(raw);
   }
 
@@ -347,9 +349,8 @@ class BasicCrossThreadPersistent final : public CrossThreadPersistentBase,
     return ptr && ptr != kSentinelPointer;
   }
 
-  static void Trace(Visitor* v, const void* ptr) {
-    const auto* handle = static_cast<const BasicCrossThreadPersistent*>(ptr);
-    v->TraceRoot(*handle, handle->Location());
+  static void TraceAsRoot(RootVisitor& root_visitor, const void* ptr) {
+    root_visitor.Trace(*static_cast<const BasicCrossThreadPersistent*>(ptr));
   }
 
   void AssignUnsafe(T* ptr) {
@@ -376,7 +377,7 @@ class BasicCrossThreadPersistent final : public CrossThreadPersistentBase,
     SetValue(ptr);
     if (!IsValid(ptr)) return;
     PersistentRegionLock guard;
-    SetNode(this->GetPersistentRegion(ptr).AllocateNode(this, &Trace));
+    SetNode(this->GetPersistentRegion(ptr).AllocateNode(this, &TraceAsRoot));
     this->CheckPointer(ptr);
   }
 
@@ -396,7 +397,7 @@ class BasicCrossThreadPersistent final : public CrossThreadPersistentBase,
     }
     SetValue(ptr);
     if (!IsValid(ptr)) return;
-    SetNode(this->GetPersistentRegion(ptr).AllocateNode(this, &Trace));
+    SetNode(this->GetPersistentRegion(ptr).AllocateNode(this, &TraceAsRoot));
     this->CheckPointer(ptr);
   }
 
@@ -414,7 +415,7 @@ class BasicCrossThreadPersistent final : public CrossThreadPersistentBase,
     return static_cast<T*>(const_cast<void*>(GetValueFromGC()));
   }
 
-  friend class cppgc::Visitor;
+  friend class internal::RootVisitor;
 };
 
 template <typename T, typename LocationPolicy, typename CheckingPolicy>

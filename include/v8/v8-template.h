@@ -14,7 +14,6 @@
 
 namespace v8 {
 
-class AccessorSignature;
 class CFunction;
 class FunctionTemplate;
 class ObjectTemplate;
@@ -27,6 +26,7 @@ class Signature;
   F(ArrayProto_forEach, array_for_each_iterator)              \
   F(ArrayProto_keys, array_keys_iterator)                     \
   F(ArrayProto_values, array_values_iterator)                 \
+  F(ArrayPrototype, initial_array_prototype)                  \
   F(AsyncIteratorPrototype, initial_async_iterator_prototype) \
   F(ErrorPrototype, initial_error_prototype)                  \
   F(IteratorPrototype, initial_iterator_prototype)            \
@@ -82,17 +82,11 @@ class V8_EXPORT Template : public Data {
    *   cross-context access.
    * \param attribute The attributes of the property for which an accessor
    *   is added.
-   * \param signature The signature describes valid receivers for the accessor
-   *   and is used to perform implicit instance checks against them. If the
-   *   receiver is incompatible (i.e. is not an instance of the constructor as
-   *   defined by FunctionTemplate::HasInstance()), an implicit TypeError is
-   *   thrown and no callback is invoked.
    */
   void SetNativeDataProperty(
       Local<String> name, AccessorGetterCallback getter,
       AccessorSetterCallback setter = nullptr,
       Local<Value> data = Local<Value>(), PropertyAttribute attribute = None,
-      Local<AccessorSignature> signature = Local<AccessorSignature>(),
       AccessControl settings = DEFAULT,
       SideEffectType getter_side_effect_type = SideEffectType::kHasSideEffect,
       SideEffectType setter_side_effect_type = SideEffectType::kHasSideEffect);
@@ -100,7 +94,6 @@ class V8_EXPORT Template : public Data {
       Local<Name> name, AccessorNameGetterCallback getter,
       AccessorNameSetterCallback setter = nullptr,
       Local<Value> data = Local<Value>(), PropertyAttribute attribute = None,
-      Local<AccessorSignature> signature = Local<AccessorSignature>(),
       AccessControl settings = DEFAULT,
       SideEffectType getter_side_effect_type = SideEffectType::kHasSideEffect,
       SideEffectType setter_side_effect_type = SideEffectType::kHasSideEffect);
@@ -136,7 +129,8 @@ class V8_EXPORT Template : public Data {
  * Interceptor for get requests on an object.
  *
  * Use `info.GetReturnValue().Set()` to set the return value of the
- * intercepted get request.
+ * intercepted get request. If the property does not exist the callback should
+ * not set the result and must not produce side effects.
  *
  * \param property The name of the property for which the request was
  * intercepted.
@@ -177,9 +171,9 @@ using GenericNamedPropertyGetterCallback =
  * Use `info.GetReturnValue()` to indicate whether the request was intercepted
  * or not. If the setter successfully intercepts the request, i.e., if the
  * request should not be further executed, call
- * `info.GetReturnValue().Set(value)`. If the setter
- * did not intercept the request, i.e., if the request should be handled as
- * if no interceptor is present, do not not call `Set()`.
+ * `info.GetReturnValue().Set(value)`. If the setter did not intercept the
+ * request, i.e., if the request should be handled as if no interceptor is
+ * present, do not not call `Set()` and do not produce side effects.
  *
  * \param property The name of the property for which the request was
  * intercepted.
@@ -202,7 +196,9 @@ using GenericNamedPropertySetterCallback =
  * defineProperty().
  *
  * Use `info.GetReturnValue().Set(value)` to set the property attributes. The
- * value is an integer encoding a `v8::PropertyAttribute`.
+ * value is an integer encoding a `v8::PropertyAttribute`. If the property does
+ * not exist the callback should not set the result and must not produce side
+ * effects.
  *
  * \param property The name of the property for which the request was
  * intercepted.
@@ -227,7 +223,8 @@ using GenericNamedPropertyQueryCallback =
  * or not. If the deleter successfully intercepts the request, i.e., if the
  * request should not be further executed, call
  * `info.GetReturnValue().Set(value)` with a boolean `value`. The `value` is
- * used as the return value of `delete`.
+ * used as the return value of `delete`. If the deleter does not intercept the
+ * request then it should not set the result and must not produce side effects.
  *
  * \param property The name of the property for which the request was
  * intercepted.
@@ -259,9 +256,9 @@ using GenericNamedPropertyEnumeratorCallback =
  * Use `info.GetReturnValue()` to indicate whether the request was intercepted
  * or not. If the definer successfully intercepts the request, i.e., if the
  * request should not be further executed, call
- * `info.GetReturnValue().Set(value)`. If the definer
- * did not intercept the request, i.e., if the request should be handled as
- * if no interceptor is present, do not not call `Set()`.
+ * `info.GetReturnValue().Set(value)`. If the definer did not intercept the
+ * request, i.e., if the request should be handled as if no interceptor is
+ * present, do not not call `Set()` and do not produce side effects.
  *
  * \param property The name of the property for which the request was
  * intercepted.
@@ -806,18 +803,12 @@ class V8_EXPORT ObjectTemplate : public Template {
    *   cross-context access.
    * \param attribute The attributes of the property for which an accessor
    *   is added.
-   * \param signature The signature describes valid receivers for the accessor
-   *   and is used to perform implicit instance checks against them. If the
-   *   receiver is incompatible (i.e. is not an instance of the constructor as
-   *   defined by FunctionTemplate::HasInstance()), an implicit TypeError is
-   *   thrown and no callback is invoked.
    */
   void SetAccessor(
       Local<String> name, AccessorGetterCallback getter,
       AccessorSetterCallback setter = nullptr,
       Local<Value> data = Local<Value>(), AccessControl settings = DEFAULT,
       PropertyAttribute attribute = None,
-      Local<AccessorSignature> signature = Local<AccessorSignature>(),
       SideEffectType getter_side_effect_type = SideEffectType::kHasSideEffect,
       SideEffectType setter_side_effect_type = SideEffectType::kHasSideEffect);
   void SetAccessor(
@@ -825,7 +816,6 @@ class V8_EXPORT ObjectTemplate : public Template {
       AccessorNameSetterCallback setter = nullptr,
       Local<Value> data = Local<Value>(), AccessControl settings = DEFAULT,
       PropertyAttribute attribute = None,
-      Local<AccessorSignature> signature = Local<AccessorSignature>(),
       SideEffectType getter_side_effect_type = SideEffectType::kHasSideEffect,
       SideEffectType setter_side_effect_type = SideEffectType::kHasSideEffect);
 
@@ -991,24 +981,6 @@ class V8_EXPORT Signature : public Data {
   static void CheckCast(Data* that);
 };
 
-/**
- * An AccessorSignature specifies which receivers are valid parameters
- * to an accessor callback.
- */
-class V8_EXPORT AccessorSignature : public Data {
- public:
-  static Local<AccessorSignature> New(
-      Isolate* isolate,
-      Local<FunctionTemplate> receiver = Local<FunctionTemplate>());
-
-  V8_INLINE static AccessorSignature* Cast(Data* data);
-
- private:
-  AccessorSignature();
-
-  static void CheckCast(Data* that);
-};
-
 // --- Implementation ---
 
 void Template::Set(Isolate* isolate, const char* name, Local<Data> value,
@@ -1037,13 +1009,6 @@ Signature* Signature::Cast(Data* data) {
   CheckCast(data);
 #endif
   return reinterpret_cast<Signature*>(data);
-}
-
-AccessorSignature* AccessorSignature::Cast(Data* data) {
-#ifdef V8_ENABLE_CHECKS
-  CheckCast(data);
-#endif
-  return reinterpret_cast<AccessorSignature*>(data);
 }
 
 }  // namespace v8
