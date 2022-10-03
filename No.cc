@@ -1,6 +1,3 @@
-#define V8_COMPRESS_POINTERS 1 
-#define V8_31BIT_SMIS_ON_64BIT_ARCH 1 
-
 #include <iostream>
 #include <unistd.h>
 #include <sys/stat.h>
@@ -16,13 +13,8 @@ using namespace v8;
 using namespace No::Util;
 
 int main(int argc, char* argv[]) {
-
-  std::cout<<V8_COMPRESS_POINTERS;
-  std::cout<<V8_31BIT_SMIS_ON_64BIT_ARCH;
-  
   setvbuf(stdout, nullptr, _IONBF, 0);
   setvbuf(stderr, nullptr, _IONBF, 0);
-
 
   // v8 初始化
   v8::V8::InitializeICUDefaultLocation(argv[0]);
